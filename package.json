@@ -1,0 +1,26 @@
+{
+  "name": "ggai-core",
+  "version": "0.2.0",
+  "description": "옵시디언 AI 응답 허브 — 모델 프로필, 생성 요청 프록시, 에이전트 런타임",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs --watch",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "release": "npm run build && node scripts/release.mjs",
+    "deploy": "npm run release && node scripts/deploy.mjs",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  },
+  "keywords": [],
+  "author": "gg00",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^16.11.6",
+    "@typescript-eslint/eslint-plugin": "5.29.0",
+    "@typescript-eslint/parser": "5.29.0",
+    "builtin-modules": "3.3.0",
+    "esbuild": "0.17.3",
+    "obsidian": "latest",
+    "tslib": "2.4.0",
+    "typescript": "5.3.3"
+  }
+}
