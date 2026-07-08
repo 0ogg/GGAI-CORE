@@ -14,100 +14,13 @@ export class GoogleAdapter implements ProviderAdapter {
   supports = { chat: true };
 
   async chat(call: ResolvedCall<ChatRequest>): Promise<ChatResponse> {
-    const body = buildGeminiBody(call);
     const url = resolveUrl(call, "generateContent");
-    const res = await requestUrlAbortable({
-      url,
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      throw: false,
-    }, call.signal);
-    if (res.status < 200 || res.status >= 300) {
-      throw new Error(`Gemini ${res.status}: ${res.text ?? ""}`);
-    }
-    return normalizeGeminiResponse(res.json);
+    return runGeminiChat(call, url, {}, "Gemini");
   }
 
   async *chatStream(call: ResolvedCall<ChatRequest>): AsyncIterable<ChatEvent> {
-    const body = buildGeminiBody(call);
     const url = resolveUrl(call, "streamGenerateContent") + "&alt=sse";
-
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: call.signal,
-      });
-    } catch (e) {
-      yield { type: "error", error: { message: (e as Error).message } };
-      return;
-    }
-    if (!res.ok || !res.body) {
-      const text = res.body ? await res.text() : "";
-      yield { type: "error", error: { message: `Gemini ${res.status}: ${text}` } };
-      return;
-    }
-
-    let fullText = "";
-    let fullReasoning = "";
-    const toolCalls: ToolCall[] = [];
-    let stopReason: ChatResponse["stopReason"] = "end";
-    const usage = { inputTokens: 0, outputTokens: 0 };
-
-    for await (const evt of parseSSE(res.body)) {
-      if (!evt.data) continue;
-      let data: GeminiStreamChunk;
-      try {
-        data = JSON.parse(evt.data) as GeminiStreamChunk;
-      } catch {
-        continue;
-      }
-      const cand = data.candidates?.[0];
-      const parts = cand?.content?.parts ?? [];
-      for (const p of parts) {
-        if (typeof p.text === "string") {
-          if (p.thought) {
-            fullReasoning += p.text;
-          } else {
-            fullText += p.text;
-            yield { type: "text-delta", delta: p.text };
-          }
-        }
-        if (p.functionCall) {
-          const id = genId();
-          yield { type: "tool-call-start", toolCallId: id, name: p.functionCall.name };
-          yield {
-            type: "tool-call-end",
-            toolCallId: id,
-            name: p.functionCall.name,
-            input: p.functionCall.args ?? {},
-          };
-          toolCalls.push({ id, name: p.functionCall.name, input: p.functionCall.args ?? {} });
-        }
-      }
-      if (cand?.finishReason) stopReason = mapGeminiFinish(cand.finishReason);
-      if (data.usageMetadata) {
-        usage.inputTokens = data.usageMetadata.promptTokenCount ?? usage.inputTokens;
-        usage.outputTokens = data.usageMetadata.candidatesTokenCount ?? usage.outputTokens;
-      }
-    }
-
-    if (toolCalls.length && stopReason === "end") stopReason = "tool_use";
-
-    yield {
-      type: "done",
-      response: {
-        text: fullText,
-        ...(fullReasoning ? { reasoning: fullReasoning } : {}),
-        toolCalls,
-        stopReason,
-        usage,
-        raw: null,
-      },
-    };
+    yield* runGeminiChatStream(call, url, {}, "Gemini");
   }
 
   async validate(profile: GGAIModelProfile, apiKey: string) {
@@ -129,7 +42,116 @@ function resolveUrl(call: ResolvedCall<ChatRequest>, method: "generateContent" |
   return `${base}/models/${call.profile.model}:${method}?key=${encodeURIComponent(call.apiKey)}`;
 }
 
-function buildGeminiBody(call: ResolvedCall<ChatRequest>) {
+// ── 공유 Gemini 요청 로직 (Vertex AI와 바디 포맷이 동일하므로 재사용) ──
+// url/인증 헤더만 호출부에서 결정하고, 바디 빌드·응답 정규화·SSE 소비는 공통이다.
+// label은 에러 메시지 접두사(예: "Gemini" / "Vertex")로만 쓰인다.
+
+export async function runGeminiChat(
+  call: ResolvedCall<ChatRequest>,
+  url: string,
+  authHeaders: Record<string, string>,
+  label: string
+): Promise<ChatResponse> {
+  const body = buildGeminiBody(call);
+  const res = await requestUrlAbortable({
+    url,
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders },
+    body: JSON.stringify(body),
+    throw: false,
+  }, call.signal);
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`${label} ${res.status}: ${res.text ?? ""}`);
+  }
+  return normalizeGeminiResponse(res.json);
+}
+
+export async function* runGeminiChatStream(
+  call: ResolvedCall<ChatRequest>,
+  url: string,
+  authHeaders: Record<string, string>,
+  label: string
+): AsyncIterable<ChatEvent> {
+  const body = buildGeminiBody(call);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders },
+      body: JSON.stringify(body),
+      signal: call.signal,
+    });
+  } catch (e) {
+    yield { type: "error", error: { message: (e as Error).message } };
+    return;
+  }
+  if (!res.ok || !res.body) {
+    const text = res.body ? await res.text() : "";
+    yield { type: "error", error: { message: `${label} ${res.status}: ${text}` } };
+    return;
+  }
+
+  let fullText = "";
+  let fullReasoning = "";
+  const toolCalls: ToolCall[] = [];
+  let stopReason: ChatResponse["stopReason"] = "end";
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  for await (const evt of parseSSE(res.body)) {
+    if (!evt.data) continue;
+    let data: GeminiStreamChunk;
+    try {
+      data = JSON.parse(evt.data) as GeminiStreamChunk;
+    } catch {
+      continue;
+    }
+    const cand = data.candidates?.[0];
+    const parts = cand?.content?.parts ?? [];
+    for (const p of parts) {
+      if (typeof p.text === "string") {
+        if (p.thought) {
+          fullReasoning += p.text;
+        } else {
+          fullText += p.text;
+          yield { type: "text-delta", delta: p.text };
+        }
+      }
+      if (p.functionCall) {
+        const id = genId();
+        yield { type: "tool-call-start", toolCallId: id, name: p.functionCall.name };
+        yield {
+          type: "tool-call-end",
+          toolCallId: id,
+          name: p.functionCall.name,
+          input: p.functionCall.args ?? {},
+        };
+        toolCalls.push({ id, name: p.functionCall.name, input: p.functionCall.args ?? {} });
+      }
+    }
+    if (cand?.finishReason) stopReason = mapGeminiFinish(cand.finishReason);
+    if (data.usageMetadata) {
+      usage.inputTokens = data.usageMetadata.promptTokenCount ?? usage.inputTokens;
+      usage.outputTokens = data.usageMetadata.candidatesTokenCount ?? usage.outputTokens;
+    }
+  }
+
+  if (toolCalls.length && stopReason === "end") stopReason = "tool_use";
+
+  yield {
+    type: "done",
+    response: {
+      text: fullText,
+      ...(fullReasoning ? { reasoning: fullReasoning } : {}),
+      toolCalls,
+      stopReason,
+      usage,
+      raw: null,
+    },
+  };
+}
+
+export function buildGeminiBody(call: ResolvedCall<ChatRequest>) {
   const chatProfile = call.profile as ChatProfile;
   const p = { ...(chatProfile.params ?? {}), ...(call.request.paramsOverride ?? {}) } as ChatProfile["params"];
   const translated = translateForGemini(call.request.messages);

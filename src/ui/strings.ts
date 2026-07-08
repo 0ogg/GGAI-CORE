@@ -79,10 +79,18 @@ const STRINGS = {
     base_url_desc_text: "선택. 비워두면 https://text.novelai.net/oa/v1",
     base_url_desc_voice: "선택. 비워두면 https://api.elevenlabs.io/v1",
     base_url_desc_openai_compat: "필수. 예: http://localhost:11434/v1 (Ollama)",
+    base_url_desc_vertex:
+      "선택. 서비스 계정 JSON 인증 시에는 리전만 입력하세요(예: us-central1, asia-northeast3). 비우면 global. " +
+      "Express 모드(API 키)는 비워도 됩니다. " +
+      "OAuth 액세스 토큰을 쓰려면 .../projects/{프로젝트}/locations/{리전}/publishers/google/models 전체 경로를 입력합니다.",
     base_url_desc_default: "선택. 비워두면 기본값 사용",
     field_api_key: "API 키",
     desc_api_key:
       "저장 시 아래 'API 키 이름'으로 Secrets Vault에 보관됩니다. 이미 저장된 키가 있으면 비워도 됩니다.",
+    api_key_vertex_placeholder: '{\n  "type": "service_account",\n  ...\n}',
+    desc_api_key_vertex:
+      "권장: 서비스 계정 키 파일(JSON) 전체를 붙여넣으면 JWT를 서명해 OAuth 토큰으로 자동 인증합니다(project_id는 JSON에서 읽음, 리전은 위 baseUrl). " +
+      "또는 Express API 키나 임시 OAuth 액세스 토큰을 넣어도 됩니다. 저장 시 'API 키 이름'으로 Secrets Vault에 보관됩니다.",
     field_api_key_ref: "API 키 이름 (apiKeyRef)",
     desc_api_key_ref_prefix:
       "키를 구분하는 이름입니다. 같은 이름을 여러 프로필에 지정하면 API 키를 공유합니다. 비워두면 '{default}' 사용.",
@@ -243,6 +251,12 @@ const STRINGS = {
     notice_voice_id_required: "ElevenLabs voice_id를 입력하세요 (보이스 불러오기에서 선택 가능)",
     notice_profile_saved: "프로필 저장 완료",
     notice_profile_added: "프로필 추가 완료",
+    error_notice_hint: "클릭하면 로그가 열립니다",
+    log_modal_title: "요청 에러 로그",
+    log_modal_empty: "기록된 에러가 없습니다.",
+    btn_copy: "복사",
+    copied: "복사됨!",
+    copy_failed: "복사 실패",
   },
 
   en: {
@@ -323,10 +337,18 @@ const STRINGS = {
     base_url_desc_text: "Optional. Defaults to https://text.novelai.net/oa/v1",
     base_url_desc_voice: "Optional. Defaults to https://api.elevenlabs.io/v1",
     base_url_desc_openai_compat: "Required. e.g. http://localhost:11434/v1 (Ollama)",
+    base_url_desc_vertex:
+      "Optional. With service-account JSON auth, enter only the region (e.g. us-central1, asia-northeast3); empty = global. " +
+      "Express mode (API key) can be left empty. " +
+      "To use an OAuth access token, enter the full .../projects/{project}/locations/{region}/publishers/google/models path.",
     base_url_desc_default: "Optional. Uses provider default if empty",
     field_api_key: "API Key",
     desc_api_key:
       "Saved to Secrets Vault under the 'API Key Name' below. Leave empty if a key is already stored.",
+    api_key_vertex_placeholder: '{\n  "type": "service_account",\n  ...\n}',
+    desc_api_key_vertex:
+      "Recommended: paste the entire service-account key file (JSON) — it signs a JWT and authenticates via OAuth automatically (project_id is read from the JSON, region from baseUrl above). " +
+      "Alternatively, enter an Express API key or a temporary OAuth access token. Saved to Secrets Vault under the 'API Key Name'.",
     field_api_key_ref: "API Key Name (apiKeyRef)",
     desc_api_key_ref_prefix:
       "Identifier for this key. Profiles sharing the same name share the same API key. Defaults to '{default}' if empty.",
@@ -488,6 +510,12 @@ const STRINGS = {
     notice_voice_id_required: "Please enter an ElevenLabs voice_id (use Load Voices to select)",
     notice_profile_saved: "Profile saved",
     notice_profile_added: "Profile added",
+    error_notice_hint: "Click to open the log",
+    log_modal_title: "Request error log",
+    log_modal_empty: "No errors recorded.",
+    btn_copy: "Copy",
+    copied: "Copied!",
+    copy_failed: "Copy failed",
   },
 } as const;
 

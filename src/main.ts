@@ -12,6 +12,8 @@ import { AgentRuntime } from "./services/agent-runtime.ts";
 import { createApi, GGAIApi } from "./api.ts";
 import { GGAISettingsTab } from "./ui/settings-tab.ts";
 import { ProfileModal } from "./ui/profile-modal.ts";
+import { LogModal } from "./ui/log-modal.ts";
+import { makeT } from "./ui/strings.ts";
 import type { GGAIModelProfile } from "./types/profile.ts";
 
 // ── Public 타입 ──
@@ -99,6 +101,7 @@ export default class GGAICorePlugin extends Plugin {
   private spinnerTimer: number | null = null;
   private spinnerFrame = 0;
   private unsubActive: (() => void) | null = null;
+  private unsubError: (() => void) | null = null;
 
   async onload(): Promise<void> {
     const loaded = (await this.loadData()) as Partial<GGAIDataShape> | null;
@@ -138,6 +141,9 @@ export default class GGAICorePlugin extends Plugin {
     // 각 토스트에 개별 취소(✕) 버튼. 네이티브 알림 스택에 함께 쌓이므로
     // 다른 플러그인/기본 알림과 겹치거나 가리지 않는다.
     this.unsubActive = this.generation.on("active-changed", () => this.syncNotices());
+
+    // API 요청 에러 발생 시 3초짜리 토스트를 띄우고, 클릭하면 로그 창을 연다.
+    this.unsubError = this.errorLogs.onError((entry) => this.showErrorNotice(entry));
 
     this.addCommand({
       id: "open-settings",
@@ -204,6 +210,8 @@ export default class GGAICorePlugin extends Plugin {
     } catch { /* ignore */ }
     this.unsubActive?.();
     this.unsubActive = null;
+    this.unsubError?.();
+    this.unsubError = null;
     this.stopSpinner();
     for (const { notice } of this.activeNotices.values()) notice.hide();
     this.activeNotices.clear();
@@ -267,6 +275,34 @@ export default class GGAICorePlugin extends Plugin {
     } else {
       this.stopSpinner();
     }
+  }
+
+  // 에러 토스트: 3초간 표시, 클릭하면 로그 창(LogModal)이 해당 에러를 펼친 채 열린다.
+  private showErrorNotice(entry: ErrorLogEntry): void {
+    const L = makeT(this.data.settings.uiLanguage ?? "ko");
+    const frag = document.createDocumentFragment();
+    const wrap = frag.createDiv();
+    wrap.style.cssText = "cursor:pointer;line-height:1.4;";
+
+    const head = wrap.createDiv();
+    const status = entry.status != null ? ` (${entry.status})` : "";
+    head.setText(`❌ ${entry.model}${status}`);
+    head.style.cssText = "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+
+    const msg = wrap.createDiv();
+    msg.setText(entry.message);
+    msg.style.cssText =
+      "font-size:12px;opacity:0.85;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;";
+
+    const hint = wrap.createDiv();
+    hint.setText(L("error_notice_hint"));
+    hint.style.cssText = "font-size:11px;opacity:0.6;margin-top:4px;";
+
+    const notice = new Notice(frag, 3000);
+    wrap.onclick = () => {
+      notice.hide();
+      new LogModal(this.app, this, entry.id).open();
+    };
   }
 
   private stopSpinner(): void {

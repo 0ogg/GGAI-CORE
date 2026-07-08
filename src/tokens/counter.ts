@@ -35,6 +35,7 @@ const PROVIDER_COEFFICIENT: Record<ProviderKind, number> = {
   openai: 1.00,
   anthropic: 1.05,
   google: 1.00,
+  vertex: 1.00,              // Vertex AI = Gemini 모델. google와 동일 계수.
   "openai-compatible": 1.05, // 로컬 Llama/Qwen 기본. 모델명 매칭으로 세분화.
   novelai: 1.05,             // NAI text 토크나이저는 경험적으로 tiktoken과 비슷한 범위.
   elevenlabs: 1.00,          // TTS 전용이라 실사용은 안 됨.

@@ -85,6 +85,26 @@ export const BUILTIN_PROVIDERS: Provider[] = [
     capabilities: ["chat"],
   },
   {
+    id: "vertex",
+    name: "Google Vertex AI",
+    // Express 모드 기본 엔드포인트. Enterprise는 프로필 baseUrl에 프로젝트/리전 경로를 지정한다.
+    baseUrl: "https://aiplatform.googleapis.com/v1/publishers/google/models",
+    authType: "api_key",
+    authHeader: "x-goog-api-key",
+    isOpenAICompatible: false,
+    requiresServer: false,
+    capabilities: ["chat"],
+    // Vertex는 API 키로 접근 가능한 공개 모델 목록 엔드포인트가 없어 정적 목록을 제공한다.
+    // (모델명은 텍스트 입력으로 직접 지정도 가능)
+    staticModels: [
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash-Lite" },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+      { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash-Lite" },
+    ],
+  },
+  {
     id: "novelai",
     name: "NovelAI",
     baseUrl: "https://text.novelai.net/oa/v1",

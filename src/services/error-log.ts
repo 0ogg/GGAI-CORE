@@ -24,8 +24,11 @@ export interface ErrorLogEntry {
 const MAX_ENTRIES = 200;
 const MAX_MESSAGE_CHARS = 2_000;
 
+export type ErrorLogListener = (entry: ErrorLogEntry) => void;
+
 export class ErrorLogStore {
   private entries: ErrorLogEntry[];
+  private listeners = new Set<ErrorLogListener>();
 
   constructor(entries: ErrorLogEntry[], private onChange: () => void) {
     this.entries = Array.isArray(entries) ? entries : [];
@@ -37,8 +40,14 @@ export class ErrorLogStore {
     return typeof limit === "number" ? sorted.slice(0, limit) : sorted;
   }
 
+  /** 새 에러가 기록될 때마다 호출된다. 반환 함수로 구독 해제. (토스트 알림 등에 사용) */
+  onError(fn: ErrorLogListener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
   add(base: Omit<ErrorLogEntry, "id" | "createdAt" | "message"> & { message: string }): void {
-    this.entries.push({
+    const entry: ErrorLogEntry = {
       ...base,
       message:
         base.message.length > MAX_MESSAGE_CHARS
@@ -46,11 +55,19 @@ export class ErrorLogStore {
           : base.message,
       id: `err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
-    });
+    };
+    this.entries.push(entry);
     if (this.entries.length > MAX_ENTRIES) {
       this.entries = this.entries.slice(this.entries.length - MAX_ENTRIES);
     }
     void this.onChange();
+    for (const fn of this.listeners) {
+      try {
+        fn(entry);
+      } catch (e) {
+        console.warn("[GGAI] error-log listener failed", e);
+      }
+    }
   }
 
   clear(): void {

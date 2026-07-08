@@ -133,6 +133,9 @@ export class GGAISettingsTab extends PluginSettingTab {
           ...(profile as GGAIModelProfile),
           id: `profile_${Math.random().toString(36).slice(2, 11)}`,
           name: `${profile.name}${L("clone_suffix")}`,
+          // 복제본이 원본의 기본 프로필 지위를 가로채지 않도록 항상 해제.
+          // 해당 kind에 기본이 하나도 없을 때만 ProfileStore가 자동 지정한다.
+          isDefault: false,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         } as GGAIModelProfile;

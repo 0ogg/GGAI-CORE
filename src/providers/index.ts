@@ -5,6 +5,7 @@ import type { ProviderAdapter } from "./base.ts";
 import { AnthropicAdapter } from "./anthropic.ts";
 import { OpenAIAdapter } from "./openai.ts";
 import { GoogleAdapter } from "./google.ts";
+import { VertexAdapter } from "./vertex.ts";
 import { NovelAIAdapter } from "./novelai.ts";
 import { ElevenLabsAdapter } from "./elevenlabs.ts";
 
@@ -16,6 +17,7 @@ export class ProviderRegistry {
     this.adapters.set("anthropic", new AnthropicAdapter());
     this.adapters.set("openai", new OpenAIAdapter("openai"));
     this.adapters.set("google", new GoogleAdapter());
+    this.adapters.set("vertex", new VertexAdapter());
     this.adapters.set("openai-compatible", new OpenAIAdapter("openai-compatible"));
     this.adapters.set("novelai", new NovelAIAdapter());
     this.adapters.set("elevenlabs", new ElevenLabsAdapter());

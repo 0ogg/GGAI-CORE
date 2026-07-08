@@ -18,7 +18,6 @@ import {
   compatServiceLabel,
   getReasoningSupport,
   COMPAT_PRESET_BASE_URL,
-  type CompatService,
 } from "../data/provider-params.ts";
 import type { Provider, ModelInfo } from "../data/providers.ts";
 import { makeT, type Lang } from "./strings.ts";
@@ -175,14 +174,16 @@ export class ProfileModal extends Modal {
         d.addOption("anthropic", "Anthropic")
           .addOption("openai", "OpenAI")
           .addOption("google", "Google Gemini")
+          .addOption("vertex", "Google Vertex AI")
           .addOption("deepseek", "DeepSeek")
           .addOption("openrouter", "OpenRouter")
           .addOption("zai", "z.ai")
+          .addOption("zaicoding", "z.ai Coding")
           .addOption("nanogpt", "NanoGPT")
           .addOption("openai-compatible", L("provider_openai_compatible"))
           .setValue(providerDropdownValue(this.state))
           .onChange((v) => {
-            const preset = COMPAT_PRESET_BASE_URL[v as CompatService];
+            const preset = COMPAT_PRESET_BASE_URL[v];
             if (preset) {
               this.state.provider = "openai-compatible";
               this.state.baseUrl = preset;
@@ -212,13 +213,27 @@ export class ProfileModal extends Modal {
       baseUrlDesc(this.state, L)
     );
 
-    this.tip(
-      new Setting(contentEl).setName(L("field_api_key")).addText((t) => {
-        t.inputEl.type = "password";
-        t.setValue(this.state.apiKey).onChange((v) => (this.state.apiKey = v));
-      }),
-      L("desc_api_key")
-    );
+    // Vertex 서비스 계정 JSON은 여러 줄이라 textarea로 붙여넣게 한다.
+    if (this.state.provider === "vertex") {
+      this.tip(
+        new Setting(contentEl).setName(L("field_api_key")).addTextArea((t) => {
+          t.inputEl.rows = 4;
+          t.inputEl.style.width = "100%";
+          t.setPlaceholder(L("api_key_vertex_placeholder"))
+            .setValue(this.state.apiKey)
+            .onChange((v) => (this.state.apiKey = v));
+        }),
+        L("desc_api_key_vertex")
+      );
+    } else {
+      this.tip(
+        new Setting(contentEl).setName(L("field_api_key")).addText((t) => {
+          t.inputEl.type = "password";
+          t.setValue(this.state.apiKey).onChange((v) => (this.state.apiKey = v));
+        }),
+        L("desc_api_key")
+      );
+    }
 
     const storedRefs = this.plugin.secretsVault.listRefs();
     const refsHint =
@@ -379,6 +394,17 @@ export class ProfileModal extends Modal {
       loadBtn.style.display = "none";
       return;
     }
+    // Vertex는 API 키로 접근 가능한 모델 목록 엔드포인트가 없어 정적 목록을 제공한다.
+    // (모델명 직접 입력도 가능)
+    if (this.state.provider === "vertex") {
+      const vx = getProvider("vertex");
+      const list = vx?.staticModels ?? [];
+      this.state.availableModels = list.map((m) => ({ id: m.id, name: m.name }));
+      statusSpan.textContent = L("n_models_built_in").replace("{count}", String(list.length));
+      renderDropdown();
+      loadBtn.style.display = "none";
+      return;
+    }
     renderDropdown();
 
     loadBtn.onclick = async () => {
@@ -430,6 +456,11 @@ export class ProfileModal extends Modal {
     }
     if (kind === "google") {
       const p = getProvider("gemini");
+      if (!p) return null;
+      return this.state.baseUrl ? { ...p, baseUrl: this.state.baseUrl } : p;
+    }
+    if (kind === "vertex") {
+      const p = getProvider("vertex");
       if (!p) return null;
       return this.state.baseUrl ? { ...p, baseUrl: this.state.baseUrl } : p;
     }
@@ -1360,6 +1391,8 @@ function attachHelpIcon(el: HTMLElement, text: string): void {
 function providerDropdownValue(state: EditorState): string {
   if (state.provider !== "openai-compatible") return state.provider;
   const svc = detectCompatService(state.baseUrl, state.model);
+  // z.ai Coding은 z.ai와 같은 서비스로 감지되므로 baseUrl로 구분한다.
+  if (svc === "zai" && state.baseUrl.includes("/coding/")) return "zaicoding";
   if (svc in COMPAT_PRESET_BASE_URL) return svc;
   return "openai-compatible";
 }
@@ -1372,6 +1405,8 @@ function providerLabel(kind: ProviderKind, L: ReturnType<typeof makeT>): string 
       return "OpenAI";
     case "google":
       return "Google Gemini";
+    case "vertex":
+      return "Google Vertex AI";
     case "openai-compatible":
       return L("provider_label_openai_compat");
     case "novelai":
@@ -1393,6 +1428,7 @@ function baseUrlDesc(state: EditorState, L: ReturnType<typeof makeT>): string {
   if (state.kind === "text") return L("base_url_desc_text");
   if (state.kind === "voice") return L("base_url_desc_voice");
   if (state.provider === "openai-compatible") return L("base_url_desc_openai_compat");
+  if (state.provider === "vertex") return L("base_url_desc_vertex");
   return L("base_url_desc_default");
 }
 

@@ -4,9 +4,12 @@ export type ProviderKind =
   | "anthropic"
   | "openai"
   | "google"
+  | "vertex"
   | "openai-compatible"
   | "novelai"
   | "elevenlabs";
+// 'google'    = Gemini API (AI Studio, generativelanguage.googleapis.com)
+// 'vertex'    = Google Vertex AI Gemini (aiplatform.googleapis.com). 바디는 Gemini와 동일, URL/인증만 다름
 // 'openai-compatible' = Ollama, LM Studio, LocalAI, vLLM, LiteLLM 등
 // 'novelai'   = NovelAI text completion + image generation (/ai/generate-image)
 // 'elevenlabs' = ElevenLabs TTS (/v1/text-to-speech/{voice_id})

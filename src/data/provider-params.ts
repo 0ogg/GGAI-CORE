@@ -13,6 +13,7 @@ const KNOWN: Record<string, ParamSupport> = {
   anthropic:  { topP: true,  topK: true,  minP: false },
   openai:     { topP: true,  topK: false, minP: false },
   google:     { topP: true,  topK: true,  minP: false },
+  vertex:     { topP: true,  topK: true,  minP: false }, // Gemini 모델 — google와 동일
   novelai:    { topP: true,  topK: true,  minP: true  },
   elevenlabs: { topP: false, topK: false, minP: false },
 };
@@ -264,9 +265,12 @@ export function compatServiceLabel(svc: CompatService): string {
 
 // UI 프로바이더 드롭다운에서 자주 쓰이는 openai-compatible 서비스를 바로 선택할 수 있게 하는 기본 엔드포인트.
 // (2026-07 확인) 모두 provider="openai-compatible" + 이 baseUrl 조합으로 저장된다.
-export const COMPAT_PRESET_BASE_URL: Partial<Record<CompatService, string>> = {
+// 키는 UI 드롭다운 값(대부분 CompatService와 동일하나, z.ai Coding처럼 baseUrl만
+// 다른 변형은 별도 키를 둔다). 값은 provider="openai-compatible"로 저장될 baseUrl.
+export const COMPAT_PRESET_BASE_URL: Record<string, string> = {
   deepseek:   "https://api.deepseek.com",
   openrouter: "https://openrouter.ai/api/v1",
   zai:        "https://api.z.ai/api/paas/v4",
+  zaicoding:  "https://api.z.ai/api/coding/paas/v4",
   nanogpt:    "https://nano-gpt.com/api/v1",
 };
