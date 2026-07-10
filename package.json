@@ -1,6 +1,6 @@
 {
   "name": "ggai-core",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "옵시디언 AI 응답 허브 — 모델 프로필, 생성 요청 프록시, 에이전트 런타임",
   "main": "main.js",
   "scripts": {

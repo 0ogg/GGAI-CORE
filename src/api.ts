@@ -129,6 +129,7 @@ export function createApi(plugin: GGAICorePlugin): GGAIApi {
           prompt: req.prompt,
           paramsOverride: req.paramsOverride,
           signal: req.signal,
+          label: req.label,
         });
       }
       // chat 프로필 → user 메시지 한 개로 래핑
@@ -137,6 +138,7 @@ export function createApi(plugin: GGAICorePlugin): GGAIApi {
         messages: [{ role: "user", content: req.prompt }],
         paramsOverride: req.paramsOverride,
         signal: req.signal,
+        label: req.label,
       });
       return { text: res.text, raw: res.raw };
     },
