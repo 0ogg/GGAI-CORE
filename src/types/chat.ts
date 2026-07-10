@@ -29,6 +29,11 @@ export interface ChatRequest {
   toolChoice?: "auto" | "none" | "required" | { type: "tool"; name: string };
   paramsOverride?: Record<string, unknown>;
   signal?: AbortSignal;
+  /**
+   * 이 요청을 유발한 기능의 표시 이름(예: "번역", "이어쓰기").
+   * "생성 중" 토스트에 `라벨 (모델명)` 형태로 표시된다. 생략 시 모델명만 표시.
+   */
+  label?: string;
 }
 
 // ToolDef의 handler 없는 공개판 (요청 시 보낸 툴 중 어댑터는 스키마만 보면 됨)
@@ -62,6 +67,8 @@ export interface TextRequest {
   prompt: string;
   paramsOverride?: Record<string, unknown>;
   signal?: AbortSignal;
+  /** "생성 중" 토스트에 표시할 기능 이름. @see ChatRequest.label */
+  label?: string;
 }
 export interface TextResponse {
   text: string;
@@ -78,6 +85,8 @@ export interface ImageRequest {
   n?: number;
   paramsOverride?: Record<string, unknown>;
   signal?: AbortSignal;
+  /** "생성 중" 토스트에 표시할 기능 이름. @see ChatRequest.label */
+  label?: string;
 }
 
 export interface GenerateRequest {
@@ -86,6 +95,8 @@ export interface GenerateRequest {
   prompt: string;
   paramsOverride?: Record<string, unknown>;
   signal?: AbortSignal;
+  /** "생성 중" 토스트에 표시할 기능 이름. @see ChatRequest.label */
+  label?: string;
 }
 export interface GenerateResponse {
   text: string;
@@ -102,6 +113,8 @@ export interface TTSRequest {
   voice?: string;
   format?: "mp3" | "wav" | "opus";
   signal?: AbortSignal;
+  /** "생성 중" 토스트에 표시할 기능 이름. @see ChatRequest.label */
+  label?: string;
 }
 export interface TTSResponse {
   audio: { kind: "base64"; mediaType: string; data: string };
@@ -113,6 +126,8 @@ export interface STTRequest {
   audio: { kind: "base64"; mediaType: string; data: string };
   language?: string;
   signal?: AbortSignal;
+  /** "생성 중" 토스트에 표시할 기능 이름. @see ChatRequest.label */
+  label?: string;
 }
 export interface STTResponse {
   text: string;

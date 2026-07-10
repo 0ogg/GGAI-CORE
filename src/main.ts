@@ -245,11 +245,13 @@ export default class GGAICorePlugin extends Plugin {
       spinner.setText(SPINNER_FRAMES[this.spinnerFrame]);
       spinner.style.cssText = "flex:0 0 auto;font-family:var(--font-monospace)";
 
-      const label = wrap.createSpan({ text: task.model });
+      // 요청을 유발한 기능이 있으면 "번역 (gpt-4o)"처럼, 없으면 모델명만.
+      const labelText = task.label ? `${task.label} (${task.model})` : task.model;
+      const label = wrap.createSpan({ text: labelText });
       label.style.cssText = "flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
 
       const cancelBtn = wrap.createEl("span", { text: "✕" });
-      cancelBtn.setAttr("aria-label", `요청 취소: ${task.model}`);
+      cancelBtn.setAttr("aria-label", `요청 취소: ${labelText}`);
       cancelBtn.setAttr("role", "button");
       cancelBtn.style.cssText =
         "flex:0 0 auto;cursor:pointer;color:var(--text-muted);font-size:12px;line-height:1";

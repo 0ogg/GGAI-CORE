@@ -37,6 +37,8 @@ export interface GGAISettings {
 export interface ActiveTask {
   id: number;
   model: string;
+  /** 요청을 유발한 기능 이름(예: "번역"). 요청에 label이 있을 때만 채워진다. */
+  label?: string;
 }
 
 /**
@@ -62,7 +64,7 @@ function normalizeError(e: unknown, signal: AbortSignal): unknown {
 type GenerationEvent = "active-changed";
 
 export class GenerationService {
-  private active: Map<number, { ctrl: AbortController; model: string }> = new Map();
+  private active: Map<number, { ctrl: AbortController; model: string; label?: string }> = new Map();
   private nextId = 1;
   private logRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   private handlers: Map<GenerationEvent, Set<() => void>> = new Map();
@@ -93,7 +95,7 @@ export class GenerationService {
   }
 
   getActive(): ActiveTask[] {
-    return Array.from(this.active, ([id, v]) => ({ id, model: v.model }));
+    return Array.from(this.active, ([id, v]) => ({ id, model: v.model, label: v.label }));
   }
 
   on(event: GenerationEvent, handler: () => void): () => void {
@@ -255,7 +257,7 @@ export class GenerationService {
     return { profile, apiKey };
   }
 
-  private wrap<TReq extends { signal?: AbortSignal; paramsOverride?: Record<string, unknown> }>(
+  private wrap<TReq extends { signal?: AbortSignal; paramsOverride?: Record<string, unknown>; label?: string }>(
     profile: GGAIModelProfile,
     apiKey: string,
     request: TReq,
@@ -283,7 +285,7 @@ export class GenerationService {
 
     const ctrl = new AbortController();
     const id = this.nextId++;
-    this.active.set(id, { ctrl, model: profile.model });
+    this.active.set(id, { ctrl, model: profile.model, label: request.label });
     this.emit("active-changed");
     // 타임아웃은 큐를 통과해 실제 실행되는 시점(runWithGate)에 시작한다.
     // 대기 중인 요청이 타임아웃을 소진하지 않도록 하기 위함.
