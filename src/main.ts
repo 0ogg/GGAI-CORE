@@ -164,6 +164,14 @@ export default class GGAICorePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "open-log",
+      name: "GGAI: 로그 보기",
+      callback: () => {
+        new LogModal(this.app, this).open();
+      },
+    });
+
+    this.addCommand({
       id: "test-profile",
       name: "GGAI: 프로필 연결 테스트",
       callback: async () => {
@@ -292,7 +300,7 @@ export default class GGAICorePlugin extends Plugin {
     head.style.cssText = "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
 
     const msg = wrap.createDiv();
-    msg.setText(entry.message);
+    msg.setText(entry.message ?? "");
     msg.style.cssText =
       "font-size:12px;opacity:0.85;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;";
 

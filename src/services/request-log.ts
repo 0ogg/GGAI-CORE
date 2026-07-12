@@ -7,6 +7,8 @@ export interface RequestLogEntry extends RequestLogEvent {
   profileName: string;
   provider: string;
   model: string;
+  /** 요청을 유발한 기능 이름(플러그인이 지정한 label). 없을 수 있음. */
+  label?: string;
 }
 
 export class RequestLogStore {

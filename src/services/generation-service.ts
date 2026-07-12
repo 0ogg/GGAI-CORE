@@ -18,11 +18,27 @@ import type { ChatProfile, GGAIModelProfile, TextProfile } from "../types/profil
 import type { ProfileStore } from "../storage/profile-store.ts";
 import type { SecretsVault } from "../storage/secrets-vault.ts";
 import type { ProviderRegistry } from "../providers/index.ts";
-import type { ResolvedCall } from "../providers/base.ts";
+import type { ResolvedCall, RequestLogEvent } from "../providers/base.ts";
 import { gateProfile, gateParamsOverride } from "../util/allowed-params.ts";
 import { countTokens } from "../tokens/counter.ts";
 import type { RequestLogStore } from "./request-log.ts";
-import type { ErrorLogStore } from "./error-log.ts";
+import type { ErrorLogStore, GenerationOutcome } from "./error-log.ts";
+
+type Transport = RequestLogEvent["transport"];
+
+/** 생성 결과 요약 — recordGen()에 전달 */
+interface GenOutcome {
+  outcome: GenerationOutcome;
+  message?: string;
+  status?: number;
+  url?: string;
+}
+
+/** provider 에러 로그에서 뽑아둔 부가 정보(HTTP 상태/URL) 보관용 */
+interface ErrorMeta {
+  status?: number;
+  url?: string;
+}
 
 export interface GGAISettings {
   requestTimeoutMs: number;
@@ -123,12 +139,7 @@ export class GenerationService {
     }
     const ad = this.providers.forProfile(profile);
     if (!ad.chat) throw new Error(`${profile.provider} 어댑터는 chat을 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
-    try {
-      return await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => ad.chat!(call));
-    } catch (e) {
-      throw normalizeError(e, call.signal);
-    }
+    return this.runAdapter("chat", profile, apiKey, req, (call) => ad.chat!(call));
   }
 
   async *chatStream(req: ChatRequest): AsyncIterable<ChatEvent> {
@@ -156,20 +167,40 @@ export class GenerationService {
     }
     const ad = this.providers.forProfile(profile);
     if (!ad.chatStream) throw new Error(`${profile.provider} 어댑터는 chatStream을 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
+    const { call, ctrl, finalize, errorMeta, callId } = this.wrap(profile, apiKey, req, req.signal, "chatStream");
+    // 스트림은 끝까지 소비되면 성공, 중간에 error 이벤트/예외가 나오면 그 결과로 덮어쓴다.
+    let outcome: GenOutcome = { outcome: "success" };
     try {
       const release = await this.acquireQueue(profile.apiKeyRef);
       const timer = setTimeout(() => ctrl.abort(), this.settings.requestTimeoutMs);
       try {
-        for await (const ev of ad.chatStream(call)) yield ev;
+        for await (const ev of ad.chatStream(call)) {
+          if (ev.type === "error") {
+            outcome = {
+              outcome: ev.error.code === "cancelled" ? "cancelled" : "error",
+              message: ev.error.message,
+              status: errorMeta.status,
+              url: errorMeta.url,
+            };
+          }
+          yield ev;
+        }
       } catch (e) {
-        throw normalizeError(e, call.signal);
+        const norm = normalizeError(e, call.signal);
+        outcome = {
+          outcome: norm instanceof GGAICancelledError ? "cancelled" : "error",
+          message: norm instanceof Error ? norm.message : String(norm),
+          status: errorMeta.status,
+          url: errorMeta.url,
+        };
+        throw norm;
       } finally {
         clearTimeout(timer);
         release();
       }
     } finally {
       finalize();
+      this.recordGen("chatStream", profile, req.label, callId, outcome);
     }
   }
 
@@ -179,48 +210,28 @@ export class GenerationService {
     const { profile, apiKey } = this.resolve(req.profileId, "text");
     const ad = this.providers.forProfile(profile);
     if (!ad.text) throw new Error(`${profile.provider} 어댑터는 text를 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
-    try {
-      return await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => ad.text!(call));
-    } catch (e) {
-      throw normalizeError(e, call.signal);
-    }
+    return this.runAdapter("text", profile, apiKey, req, (call) => ad.text!(call));
   }
 
   async image(req: ImageRequest): Promise<ImageResponse> {
     const { profile, apiKey } = this.resolve(req.profileId, "image");
     const ad = this.providers.forProfile(profile);
     if (!ad.image) throw new Error(`${profile.provider} 어댑터는 image를 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
-    try {
-      return await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => ad.image!(call));
-    } catch (e) {
-      throw normalizeError(e, call.signal);
-    }
+    return this.runAdapter("image", profile, apiKey, req, (call) => ad.image!(call));
   }
 
   async tts(req: TTSRequest): Promise<TTSResponse> {
     const { profile, apiKey } = this.resolve(req.profileId);
     const ad = this.providers.forProfile(profile);
     if (!ad.tts) throw new Error(`${profile.provider} 어댑터는 tts를 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
-    try {
-      return await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => ad.tts!(call));
-    } catch (e) {
-      throw normalizeError(e, call.signal);
-    }
+    return this.runAdapter("tts", profile, apiKey, req, (call) => ad.tts!(call));
   }
 
   async stt(req: STTRequest): Promise<STTResponse> {
     const { profile, apiKey } = this.resolve(req.profileId);
     const ad = this.providers.forProfile(profile);
     if (!ad.stt) throw new Error(`${profile.provider} 어댑터는 stt를 지원하지 않습니다`);
-    const { call, ctrl, finalize } = this.wrap(profile, apiKey, req, req.signal);
-    try {
-      return await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => ad.stt!(call));
-    } catch (e) {
-      throw normalizeError(e, call.signal);
-    }
+    return this.runAdapter("stt", profile, apiKey, req, (call) => ad.stt!(call));
   }
 
   // ── 유틸 ──
@@ -261,8 +272,9 @@ export class GenerationService {
     profile: GGAIModelProfile,
     apiKey: string,
     request: TReq,
-    externalSignal: AbortSignal | undefined
-  ): { call: ResolvedCall<TReq>; ctrl: AbortController; finalize: () => void } {
+    externalSignal: AbortSignal | undefined,
+    transport: Transport
+  ): { call: ResolvedCall<TReq>; ctrl: AbortController; finalize: () => void; errorMeta: ErrorMeta; callId: string } {
     // allowedParams 게이트: chat/text 프로필이면 미허용 샘플링 키를
     // profile.params와 request.paramsOverride 양쪽에서 제거.
     // 출력 길이(maxTokens)는 외부 요청 override 값을 그대로 존중한다 (다른 샘플링
@@ -285,6 +297,9 @@ export class GenerationService {
 
     const ctrl = new AbortController();
     const id = this.nextId++;
+    // 생성 로그(errorLogs)와 상세 요청 로그(requestLogs)를 잇는 키. 같은 호출의
+    // request/response/error 본문을 뷰에서 이 키로 매칭한다.
+    const callId = `${this.logRunId}:${id}`;
     this.active.set(id, { ctrl, model: profile.model, label: request.label });
     this.emit("active-changed");
     // 타임아웃은 큐를 통과해 실제 실행되는 시점(runWithGate)에 시작한다.
@@ -295,6 +310,11 @@ export class GenerationService {
       if (this.active.delete(id)) this.emit("active-changed");
     };
 
+    // provider가 phase==="error"로 남긴 HTTP 상태/URL을 담아뒀다가 recordGen에서 활용.
+    // (생성 로그의 outcome/message는 GenerationService가 중앙에서 기록하고, provider는
+    //  상세 요청 로그(requestLogs)만 채운다.)
+    const errorMeta: ErrorMeta = {};
+
     const call: ResolvedCall<TReq> = {
       profile: gatedProfile,
       apiKey,
@@ -303,31 +323,77 @@ export class GenerationService {
       log: (event) => {
         this.requestLogs.add({
           ...event,
-          callId: `${this.logRunId}:${id}`,
+          callId,
           profileId: profile.id,
           profileName: profile.name,
           provider: profile.provider,
           model: profile.model,
+          label: request.label,
         });
-        // 에러는 별도 저장소에도 압축 형태로 수집 (원문 body 미저장)
-        if (event.phase === "error" && this.errorLogs) {
-          this.errorLogs.add({
-            profileId: profile.id,
-            profileName: profile.name,
-            provider: profile.provider,
-            model: profile.model,
-            transport: event.transport,
-            status: event.status,
-            url: event.url,
-            message: event.error ?? "(에러 메시지 없음)",
-          });
+        if (event.phase === "error") {
+          errorMeta.status = event.status;
+          errorMeta.url = event.url;
         }
       },
     };
     if (this.settings.logRequests) {
       console.log("[GGAI] request", profile.kind, profile.name, profile.model);
     }
-    return { call, ctrl, finalize };
+    return { call, ctrl, finalize, errorMeta, callId };
+  }
+
+  /**
+   * wrap + 큐/타임아웃 실행 + 생성 로그 기록을 한 번에 처리하는 비스트리밍 공통 경로.
+   * 성공/에러/취소를 provider 구현과 무관하게 errorLogs에 항상 남긴다.
+   */
+  private async runAdapter<
+    TReq extends { signal?: AbortSignal; paramsOverride?: Record<string, unknown>; label?: string },
+    T
+  >(
+    transport: Transport,
+    profile: GGAIModelProfile,
+    apiKey: string,
+    req: TReq,
+    exec: (call: ResolvedCall<TReq>) => Promise<T>
+  ): Promise<T> {
+    const { call, ctrl, finalize, errorMeta, callId } = this.wrap(profile, apiKey, req, req.signal, transport);
+    try {
+      const res = await this.runWithGate(profile.apiKeyRef, ctrl, finalize, () => exec(call));
+      this.recordGen(transport, profile, req.label, callId, { outcome: "success" });
+      return res;
+    } catch (e) {
+      const norm = normalizeError(e, call.signal);
+      this.recordGen(transport, profile, req.label, callId, {
+        outcome: norm instanceof GGAICancelledError ? "cancelled" : "error",
+        message: norm instanceof Error ? norm.message : String(norm),
+        status: errorMeta.status,
+        url: errorMeta.url,
+      });
+      throw norm;
+    }
+  }
+
+  /** 생성 결과 한 건을 압축 로그에 기록한다. */
+  private recordGen(
+    transport: Transport,
+    profile: GGAIModelProfile,
+    label: string | undefined,
+    callId: string,
+    info: GenOutcome
+  ): void {
+    this.errorLogs?.record({
+      profileId: profile.id,
+      profileName: profile.name,
+      provider: profile.provider,
+      model: profile.model,
+      transport,
+      outcome: info.outcome,
+      label,
+      callId,
+      status: info.status,
+      url: info.url,
+      message: info.message,
+    });
   }
 
   // ── 직렬화 큐 ──

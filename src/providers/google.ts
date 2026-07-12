@@ -53,6 +53,7 @@ export async function runGeminiChat(
   label: string
 ): Promise<ChatResponse> {
   const body = buildGeminiBody(call);
+  call.log?.({ phase: "request", transport: "chat", url, body: summarizeGeminiBody(body) });
   const res = await requestUrlAbortable({
     url,
     method: "POST",
@@ -61,9 +62,24 @@ export async function runGeminiChat(
     throw: false,
   }, call.signal);
   if (res.status < 200 || res.status >= 300) {
+    call.log?.({ phase: "error", transport: "chat", url, status: res.status, error: res.text ?? "" });
     throw new Error(`${label} ${res.status}: ${res.text ?? ""}`);
   }
-  return normalizeGeminiResponse(res.json);
+  const normalized = normalizeGeminiResponse(res.json);
+  call.log?.({
+    phase: "response",
+    transport: "chat",
+    url,
+    status: res.status,
+    response: {
+      text: summarizeText(normalized.text),
+      stopReason: normalized.stopReason,
+      usage: normalized.usage,
+      raw: res.json,
+      ...(normalized.reasoning ? { reasoning: summarizeText(normalized.reasoning) } : {}),
+    },
+  });
+  return normalized;
 }
 
 export async function* runGeminiChatStream(
@@ -73,6 +89,7 @@ export async function* runGeminiChatStream(
   label: string
 ): AsyncIterable<ChatEvent> {
   const body = buildGeminiBody(call);
+  call.log?.({ phase: "request", transport: "chatStream", url, body: summarizeGeminiBody(body) });
 
   let res: Response;
   try {
@@ -83,11 +100,13 @@ export async function* runGeminiChatStream(
       signal: call.signal,
     });
   } catch (e) {
+    call.log?.({ phase: "error", transport: "chatStream", url, error: (e as Error).message });
     yield { type: "error", error: { message: (e as Error).message } };
     return;
   }
   if (!res.ok || !res.body) {
     const text = res.body ? await res.text() : "";
+    call.log?.({ phase: "error", transport: "chatStream", url, status: res.status, error: text });
     yield { type: "error", error: { message: `${label} ${res.status}: ${text}` } };
     return;
   }
@@ -138,6 +157,20 @@ export async function* runGeminiChatStream(
 
   if (toolCalls.length && stopReason === "end") stopReason = "tool_use";
 
+  call.log?.({
+    phase: "response",
+    transport: "chatStream",
+    url,
+    status: res.status,
+    response: {
+      text: summarizeText(fullText),
+      stopReason,
+      usage,
+      raw: null,
+      ...(fullReasoning ? { reasoning: summarizeText(fullReasoning) } : {}),
+    },
+  });
+
   yield {
     type: "done",
     response: {
@@ -187,6 +220,45 @@ export function buildGeminiBody(call: ResolvedCall<ChatRequest>) {
     }
   }
   return body;
+}
+
+// ── 로그용 요약 ──
+
+function summarizeGeminiBody(body: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...body,
+    contents: Array.isArray(body.contents) ? body.contents.map(summarizeGeminiContent) : body.contents,
+  };
+}
+
+function summarizeGeminiContent(content: unknown): unknown {
+  if (!content || typeof content !== "object") return content;
+  const rec = content as Record<string, unknown>;
+  const parts = Array.isArray(rec.parts) ? rec.parts : [];
+  return { role: rec.role, content: summarizeText(flattenGeminiParts(parts)) };
+}
+
+/** parts 배열(text/functionCall/functionResponse)을 로그에 표시할 단일 문자열로 압축. */
+function flattenGeminiParts(parts: unknown[]): string {
+  return parts
+    .map((p) => {
+      if (!p || typeof p !== "object") return String(p);
+      const rec = p as Record<string, unknown>;
+      if (typeof rec.text === "string") return rec.thought ? `[thought] ${rec.text}` : rec.text;
+      if (rec.functionCall) return `[functionCall ${JSON.stringify(rec.functionCall)}]`;
+      if (rec.functionResponse) return `[functionResponse ${JSON.stringify(rec.functionResponse)}]`;
+      return JSON.stringify(rec);
+    })
+    .join("\n");
+}
+
+function summarizeText(text: string): Record<string, unknown> {
+  return {
+    length: text.length,
+    head: text.slice(0, 1200),
+    tail: text.length > 1200 ? text.slice(-1200) : "",
+    full: text,
+  };
 }
 
 interface GeminiCandidate {

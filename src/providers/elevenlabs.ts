@@ -40,6 +40,13 @@ export class ElevenLabsAdapter implements ProviderAdapter {
     if (Object.keys(voiceSettings).length > 0) body.voice_settings = voiceSettings;
     if (p.language) body.language_code = p.language;
 
+    call.log?.({
+      phase: "request",
+      transport: "tts",
+      url,
+      body: { ...body, text: summarizeText(request.text ?? "") },
+    });
+
     const res = await requestUrlAbortable({
       url,
       method: "POST",
@@ -52,9 +59,17 @@ export class ElevenLabsAdapter implements ProviderAdapter {
       throw: false,
     }, call.signal);
     if (res.status < 200 || res.status >= 300) {
+      call.log?.({ phase: "error", transport: "tts", url, status: res.status, error: res.text ?? "" });
       throw new Error(`ElevenLabs tts ${res.status}: ${res.text ?? ""}`);
     }
     const data = arrayBufferToBase64(res.arrayBuffer);
+    call.log?.({
+      phase: "response",
+      transport: "tts",
+      url,
+      status: res.status,
+      response: { mediaType: mediaTypeFromFormat(outputFormat), bytes: res.arrayBuffer.byteLength },
+    });
     return {
       audio: {
         kind: "base64",
@@ -99,6 +114,15 @@ function mediaTypeFromFormat(f: string): string {
   if (f.startsWith("pcm")) return "audio/wav";
   if (f.startsWith("opus") || f.startsWith("ulaw")) return "audio/ogg";
   return "application/octet-stream";
+}
+
+function summarizeText(text: string): Record<string, unknown> {
+  return {
+    length: text.length,
+    head: text.slice(0, 1200),
+    tail: text.length > 1200 ? text.slice(-1200) : "",
+    full: text,
+  };
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {

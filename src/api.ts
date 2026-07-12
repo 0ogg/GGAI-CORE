@@ -189,7 +189,7 @@ export function createApi(plugin: GGAICorePlugin): GGAIApi {
       return { text: text.slice(offset, offset + maxChars), totalChars: text.length };
     },
 
-    getErrorLog: (limit) => plugin.errorLogs.list(limit),
+    getErrorLog: (limit) => plugin.errorLogs.listErrors(limit),
 
     countTokens: (input, opts) => {
       // profileId가 오면 provider/model로 해석, 아니면 직접 지정값 사용.

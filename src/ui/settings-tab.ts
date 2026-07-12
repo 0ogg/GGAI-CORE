@@ -1,8 +1,8 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type GGAICorePlugin from "../main.ts";
 import type { GGAIModelProfile, ProfileKind } from "../types/profile.ts";
-import type { RequestLogEntry } from "../services/request-log.ts";
 import { ProfileModal } from "./profile-modal.ts";
+import { LogView } from "./log-view.ts";
 import { makeT, type Lang } from "./strings.ts";
 
 type TabId = "profiles" | "secrets" | "logs" | "advanced" | "about";
@@ -310,7 +310,8 @@ export class GGAISettingsTab extends PluginSettingTab {
   }
 
   private renderLogs(el: HTMLElement): void {
-    el.createEl("h2", { text: "Request Logs" });
+    const L = makeT(this.lang);
+    el.createEl("h2", { text: L("log_modal_title") });
     const actions = el.createDiv();
     actions.style.display = "flex";
     actions.style.gap = "8px";
@@ -318,34 +319,13 @@ export class GGAISettingsTab extends PluginSettingTab {
 
     actions.createEl("button", { text: "Refresh" }).onclick = () => this.display();
     actions.createEl("button", { text: "Clear logs" }).onclick = () => {
-      if (!confirm("Clear all GGAI request logs?")) return;
+      if (!confirm("Clear all GGAI logs?")) return;
+      this.plugin.errorLogs.clear();
       this.plugin.requestLogs.clear();
       this.display();
     };
 
-    const logs = this.plugin.requestLogs.list();
-    if (logs.length === 0) {
-      const empty = el.createEl("p", { text: "No request logs yet." });
-      empty.style.opacity = "0.7";
-      return;
-    }
-
-    for (const group of groupRequestLogs(logs)) {
-      const latest = group[0];
-      const details = el.createEl("details");
-      details.style.border = "1px solid var(--background-modifier-border)";
-      details.style.borderRadius = "6px";
-      details.style.padding = "8px";
-      details.style.marginBottom = "8px";
-
-      const time = new Date(latest.createdAt).toLocaleString();
-      const phases = group.map((log) => log.phase).join(" -> ");
-      details.createEl("summary", {
-        text: `${time} | ${phases} | ${latest.transport} | ${latest.profileName} | ${latest.model}`,
-      });
-
-      renderLogGroup(details, group);
-    }
+    new LogView(this.plugin, L).mount(el);
   }
 
   private renderAbout(el: HTMLElement): void {
@@ -357,178 +337,4 @@ export class GGAISettingsTab extends PluginSettingTab {
     p2.style.opacity = "0.7";
     p2.setText(L("about_features"));
   }
-}
-
-function groupRequestLogs(logs: RequestLogEntry[]): RequestLogEntry[][] {
-  const groups = new Map<string, RequestLogEntry[][]>();
-  for (const log of logs.slice().sort((a, b) => a.createdAt - b.createdAt)) {
-    const key = log.callId != null ? `call:${log.callId}` : log.id;
-    let buckets = groups.get(key);
-    if (!buckets) {
-      buckets = [];
-      groups.set(key, buckets);
-    }
-    const current = buckets[buckets.length - 1];
-    if (!current || startsNewLogGroup(current, log)) buckets.push([log]);
-    else current.push(log);
-  }
-  return Array.from(groups.values())
-    .flat()
-    .map((group) => group.sort((a, b) => a.createdAt - b.createdAt))
-    .sort((a, b) => b[b.length - 1].createdAt - a[a.length - 1].createdAt);
-}
-
-function startsNewLogGroup(group: RequestLogEntry[], log: RequestLogEntry): boolean {
-  if (log.phase !== "request") return false;
-  const last = group[group.length - 1];
-  if (!last) return false;
-  if (last.phase === "response") return true;
-  return last.phase === "error" && log.createdAt - last.createdAt > 5000;
-}
-
-function renderLogGroup(container: HTMLElement, group: RequestLogEntry[]): void {
-  const first = group[0];
-  const meta = container.createEl("pre");
-  meta.style.whiteSpace = "pre-wrap";
-  meta.style.fontSize = "12px";
-  meta.style.margin = "8px 0";
-  meta.setText(
-    [
-      `${first.provider} / ${first.model}`,
-      `profile: ${first.profileName}`,
-      `transport: ${first.transport}`,
-    ].join("\n")
-  );
-
-  for (const log of group) {
-    if (log.body !== undefined) {
-      renderLogPayload(container, "REQUEST", log, "body", formatPayload(log.body));
-    }
-    if (log.response !== undefined) {
-      renderLogPayload(container, "RESPONSE", log, "response", formatPayload(log.response));
-    }
-    if (log.error) {
-      renderLogPayload(container, "ERROR", log, "error", log.error);
-    }
-  }
-}
-
-function renderLogPayload(
-  container: HTMLElement,
-  label: "REQUEST" | "RESPONSE" | "ERROR",
-  log: RequestLogEntry,
-  kind: "body" | "response" | "error",
-  text: string
-): void {
-  const details = container.createEl("details");
-  details.style.border = "1px solid var(--background-modifier-border)";
-  details.style.borderRadius = "6px";
-  details.style.marginTop = "8px";
-  details.style.backgroundColor =
-    kind === "body"
-      ? "rgba(60, 120, 255, 0.08)"
-      : kind === "response"
-        ? "rgba(80, 170, 120, 0.08)"
-        : "rgba(220, 80, 80, 0.08)";
-
-  const summaryParts = [
-    `${label} ${new Date(log.createdAt).toLocaleTimeString()}`,
-    log.transport,
-  ];
-  if (log.status != null) summaryParts.push(`status ${log.status}`);
-  if (log.url) summaryParts.push(log.url);
-
-  const summary = details.createEl("summary", {
-    text: summaryParts.join(" | "),
-  });
-  summary.style.padding = "6px 8px";
-  summary.style.cursor = "pointer";
-
-  const copyBtn = details.createEl("button", { text: "Copy" });
-  copyBtn.style.margin = "0 8px 8px";
-  copyBtn.onclick = (e) => {
-    e.preventDefault();
-    void navigator.clipboard.writeText(text).then(
-      () => {
-        const prev = copyBtn.textContent;
-        copyBtn.textContent = "Copied!";
-        window.setTimeout(() => {
-          copyBtn.textContent = prev;
-        }, 1500);
-      },
-      () => {
-        copyBtn.textContent = "Copy failed";
-      }
-    );
-  };
-
-  const pre = details.createEl("pre");
-  pre.style.whiteSpace = "pre-wrap";
-  pre.style.maxHeight = "420px";
-  pre.style.overflow = "auto";
-  pre.style.fontSize = "12px";
-  pre.style.margin = "0";
-  pre.style.padding = "8px";
-  pre.setText(text);
-}
-
-function formatPayload(value: unknown): string {
-  if (typeof value === "string") return indent(value);
-  if (!value || typeof value !== "object") return indent(String(value));
-
-  const rec = value as Record<string, unknown>;
-  const lines: string[] = [];
-  for (const [key, v] of Object.entries(rec)) {
-    if (key === "raw" || key === "events") continue;
-    if (key === "messages" && Array.isArray(v)) {
-      lines.push("messages:");
-      for (const msg of v) lines.push(indent(formatMessage(msg), 2));
-    } else if (key === "prompt" || key === "text" || key === "reasoning") {
-      lines.push(`${key}:\n${indent(formatTextSummary(v), 2)}`);
-    } else if (key === "usage" && v && typeof v === "object") {
-      const usage = v as Record<string, unknown>;
-      lines.push(`usage: input ${usage.inputTokens ?? usage.prompt_tokens ?? 0}, output ${usage.outputTokens ?? usage.completion_tokens ?? 0}`);
-    } else if (isScalar(v)) {
-      lines.push(`${key}: ${String(v)}`);
-    } else {
-      lines.push(`${key}: ${formatCompact(v)}`);
-    }
-  }
-  return indent(lines.join("\n"));
-}
-
-function formatMessage(value: unknown): string {
-  if (!value || typeof value !== "object") return String(value);
-  const rec = value as Record<string, unknown>;
-  return `[${String(rec.role ?? "?")}]\n${formatTextSummary(rec.content)}`;
-}
-
-function formatTextSummary(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    const rec = value as Record<string, unknown>;
-    if (typeof rec.full === "string") return rec.full;
-    const head = typeof rec.head === "string" ? rec.head : "";
-    const tail = typeof rec.tail === "string" ? rec.tail : "";
-    const length = rec.length != null ? ` (${rec.length} chars)` : "";
-    return tail ? `${head}\n...\n${tail}${length}` : `${head}${length}`;
-  }
-  return formatCompact(value);
-}
-
-function isScalar(value: unknown): boolean {
-  return value == null || ["string", "number", "boolean"].includes(typeof value);
-}
-
-function formatCompact(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function indent(text: string, spaces = 2): string {
-  const pad = " ".repeat(spaces);
-  return text.split("\n").map((line) => `${pad}${line}`).join("\n");
 }

@@ -27,6 +27,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   async chat(call: ResolvedCall<ChatRequest>): Promise<ChatResponse> {
     const body = buildAnthropicBody(call, /*stream*/ false);
     const url = (call.profile.baseUrl ?? "https://api.anthropic.com") + "/v1/messages";
+    call.log?.({ phase: "request", transport: "chat", url, body: summarizeAnthropicBody(body) });
 
     const res = await requestUrlAbortable({
       url,
@@ -41,16 +42,32 @@ export class AnthropicAdapter implements ProviderAdapter {
     }, call.signal);
 
     if (res.status < 200 || res.status >= 300) {
+      call.log?.({ phase: "error", transport: "chat", url, status: res.status, error: res.text ?? "" });
       throw new Error(`Anthropic ${res.status}: ${res.text ?? ""}`);
     }
 
     const data = res.json as AnthropicResponseRaw;
-    return normalizeAnthropicResponse(data);
+    const normalized = normalizeAnthropicResponse(data);
+    call.log?.({
+      phase: "response",
+      transport: "chat",
+      url,
+      status: res.status,
+      response: {
+        text: summarizeText(normalized.text),
+        stopReason: normalized.stopReason,
+        usage: normalized.usage,
+        raw: data,
+        ...(normalized.reasoning ? { reasoning: summarizeText(normalized.reasoning) } : {}),
+      },
+    });
+    return normalized;
   }
 
   async *chatStream(call: ResolvedCall<ChatRequest>): AsyncIterable<ChatEvent> {
     const body = buildAnthropicBody(call, /*stream*/ true);
     const url = (call.profile.baseUrl ?? "https://api.anthropic.com") + "/v1/messages";
+    call.log?.({ phase: "request", transport: "chatStream", url, body: summarizeAnthropicBody(body) });
 
     let res: Response;
     try {
@@ -65,11 +82,13 @@ export class AnthropicAdapter implements ProviderAdapter {
         signal: call.signal,
       });
     } catch (e) {
+      call.log?.({ phase: "error", transport: "chatStream", url, error: (e as Error).message });
       yield { type: "error", error: { message: (e as Error).message } };
       return;
     }
     if (!res.ok || !res.body) {
       const text = res.body ? await res.text() : "";
+      call.log?.({ phase: "error", transport: "chatStream", url, status: res.status, error: text });
       yield { type: "error", error: { message: `Anthropic ${res.status}: ${text}` } };
       return;
     }
@@ -155,6 +174,19 @@ export class AnthropicAdapter implements ProviderAdapter {
       usage,
       raw: null,
     };
+    call.log?.({
+      phase: "response",
+      transport: "chatStream",
+      url,
+      status: res.status,
+      response: {
+        text: summarizeText(fullText),
+        stopReason,
+        usage,
+        raw: null,
+        ...(fullReasoning ? { reasoning: summarizeText(fullReasoning) } : {}),
+      },
+    });
     yield { type: "done", response };
   }
 
@@ -258,6 +290,60 @@ function mapAnthropicStopReason(r: string): ChatResponse["stopReason"] {
 }
 
 // ── SSE 이벤트 타입 ──
+
+// ── 로그용 요약 ──
+
+function summarizeAnthropicBody(body: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...body,
+    messages: Array.isArray(body.messages) ? body.messages.map(summarizeAnthropicMessage) : body.messages,
+  };
+}
+
+function summarizeAnthropicMessage(message: unknown): unknown {
+  if (!message || typeof message !== "object") return message;
+  const rec = message as Record<string, unknown>;
+  return {
+    ...rec,
+    content:
+      typeof rec.content === "string"
+        ? summarizeText(rec.content)
+        : summarizeText(flattenAnthropicContent(rec.content)),
+  };
+}
+
+/** 블록 배열(text/tool_use/tool_result/thinking)을 로그에 표시할 단일 문자열로 압축. */
+function flattenAnthropicContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return String(content ?? "");
+  return content
+    .map((b) => {
+      if (!b || typeof b !== "object") return String(b);
+      const block = b as Record<string, unknown>;
+      switch (block.type) {
+        case "text":
+          return String(block.text ?? "");
+        case "tool_use":
+          return `[tool_use ${block.name}(${block.id}) input=${JSON.stringify(block.input)}]`;
+        case "tool_result":
+          return `[tool_result ${block.tool_use_id}: ${typeof block.content === "string" ? block.content : JSON.stringify(block.content)}]`;
+        case "thinking":
+          return `[thinking] ${String((block as { thinking?: string }).thinking ?? "")}`;
+        default:
+          return JSON.stringify(block);
+      }
+    })
+    .join("\n");
+}
+
+function summarizeText(text: string): Record<string, unknown> {
+  return {
+    length: text.length,
+    head: text.slice(0, 1200),
+    tail: text.length > 1200 ? text.slice(-1200) : "",
+    full: text,
+  };
+}
 
 interface AnthropicStreamEvent {
   type?: string;
