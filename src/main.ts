@@ -247,22 +247,25 @@ export default class GGAICorePlugin extends Plugin {
 
       const frag = document.createDocumentFragment();
       const wrap = frag.createDiv();
-      wrap.style.cssText = "display:flex;align-items:center;gap:8px;";
+      wrap.style.cssText = "display:flex;align-items:center;gap:4px;";
 
       const spinner = wrap.createSpan();
       spinner.setText(SPINNER_FRAMES[this.spinnerFrame]);
       spinner.style.cssText = "flex:0 0 auto;font-family:var(--font-monospace)";
 
       // 요청을 유발한 기능이 있으면 "번역 (gpt-4o)"처럼, 없으면 모델명만.
+      // 모바일 등에서 UI를 가리지 않도록 8자까지만 표시하고 나머지는 생략한다.
       const labelText = task.label ? `${task.label} (${task.model})` : task.model;
-      const label = wrap.createSpan({ text: labelText });
-      label.style.cssText = "flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      const shortText = labelText.length > 8 ? `${labelText.slice(0, 8)}…` : labelText;
+      const label = wrap.createSpan({ text: shortText });
+      label.setAttr("aria-label", labelText);
+      label.style.cssText = "flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
 
       const cancelBtn = wrap.createEl("span", { text: "✕" });
       cancelBtn.setAttr("aria-label", `요청 취소: ${labelText}`);
       cancelBtn.setAttr("role", "button");
       cancelBtn.style.cssText =
-        "flex:0 0 auto;cursor:pointer;color:var(--text-muted);font-size:12px;line-height:1";
+        "flex:0 0 auto;cursor:pointer;color:var(--text-muted);line-height:1";
 
       // ✕ 또는 토스트 본문 클릭 → 해당 요청만 취소. cancel()은 멱등이라
       // 본문 클릭(토스트 자동 dismiss)과 ✕ 클릭이 겹쳐도 안전하다.
@@ -271,6 +274,42 @@ export default class GGAICorePlugin extends Plugin {
       wrap.onclick = cancel;
 
       const notice = new Notice(frag, 0);
+      // 코어 생성 토스트만 축소한다. 옵시디언(특히 모바일)이 .notice 의 padding/
+      // width 를 !important 로 지정해 스타일시트로는 이기기 어렵다 → 카스케이드에서
+      // 항상 이기는 인라인 !important 로 직접 박는다. 기본 .notice 는 안 건드린다.
+      const el = notice.noticeEl;
+      el.addClass("ggai-gen-notice");
+
+      // font 등 노티스 본체(.notice)에만 줄 스타일.
+      const inner: Record<string, string> = {
+        "box-sizing": "border-box",
+        padding: "2px 6px",
+        "font-size": "0.6em",
+        "line-height": "1.2",
+      };
+      for (const [prop, val] of Object.entries(inner)) el.style.setProperty(prop, val, "important");
+
+      // 모바일 옵시디언은 .notice 를 공유 .notice-container 안에서 래퍼 DIV 로 한 번 더
+      // 감싸기도 한다. 바깥 래퍼가 full-width/가운데 정렬/패딩을 갖고 있어 상단 UI 를
+      // 가리므로, 노티스 본체부터 위로 올라가며 "공유 컨테이너 직전"까지의 래퍼를 모두
+      // 폭 축소 + 좌측 정렬한다. (.notice-container 자체는 다른 알림과 공유하므로 안 건드림.)
+      const shrink: Record<string, string> = {
+        "min-width": "0",
+        width: "fit-content",
+        "max-width": "40vw",
+        flex: "0 0 auto",
+        "align-self": "flex-start", // flex 컨테이너에서 좌측
+        "margin-left": "0",
+        "margin-right": "auto", // block/margin-auto 로 가운데 정렬되던 것을 좌측으로
+        "margin-bottom": "4px",
+      };
+      let node: HTMLElement | null = el;
+      while (node && !node.classList.contains("notice-container") && node !== document.body) {
+        for (const [prop, val] of Object.entries(shrink)) node.style.setProperty(prop, val, "important");
+        // 래퍼(본체가 아닌 바깥 DIV)의 패딩이 남아 보이므로 0 으로 만든다.
+        if (node !== el) node.style.setProperty("padding", "0", "important");
+        node = node.parentElement;
+      }
       this.activeNotices.set(task.id, { notice, spinnerEl: spinner });
     }
 
