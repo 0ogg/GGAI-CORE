@@ -10,7 +10,7 @@
   box-sizing: border-box !important;
   padding: 2px 6px !important;
   margin: 0 0 4px 0 !important;
-  font-size: 0.6em !important;
+  font-size: 0.7em !important;
   line-height: 1.2 !important;
   /* 노티스 컨테이너가 flex 로 자식을 늘리는(stretch) 것을 막고 좌측에 붙인다. */
   flex: 0 0 auto !important;

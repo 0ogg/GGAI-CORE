@@ -274,25 +274,17 @@ export default class GGAICorePlugin extends Plugin {
       wrap.onclick = cancel;
 
       const notice = new Notice(frag, 0);
-      // 코어 생성 토스트만 축소한다. 옵시디언(특히 모바일)이 .notice 의 padding/
-      // width 를 !important 로 지정해 스타일시트로는 이기기 어렵다 → 카스케이드에서
-      // 항상 이기는 인라인 !important 로 직접 박는다. 기본 .notice 는 안 건드린다.
+      // 노티스 본체(.notice)의 크기·폰트·여백은 styles.css 의 .ggai-gen-notice 가
+      // 관리한다. 여기서 인라인 !important 로 박으면 스타일시트를 무력화하므로 클래스만 붙인다.
       const el = notice.noticeEl;
       el.addClass("ggai-gen-notice");
 
-      // font 등 노티스 본체(.notice)에만 줄 스타일.
-      const inner: Record<string, string> = {
-        "box-sizing": "border-box",
-        padding: "2px 6px",
-        "font-size": "0.6em",
-        "line-height": "1.2",
-      };
-      for (const [prop, val] of Object.entries(inner)) el.style.setProperty(prop, val, "important");
-
       // 모바일 옵시디언은 .notice 를 공유 .notice-container 안에서 래퍼 DIV 로 한 번 더
       // 감싸기도 한다. 바깥 래퍼가 full-width/가운데 정렬/패딩을 갖고 있어 상단 UI 를
-      // 가리므로, 노티스 본체부터 위로 올라가며 "공유 컨테이너 직전"까지의 래퍼를 모두
-      // 폭 축소 + 좌측 정렬한다. (.notice-container 자체는 다른 알림과 공유하므로 안 건드림.)
+      // 가리므로, 본체의 부모부터 위로 올라가며 "공유 컨테이너 직전"까지의 래퍼를 모두
+      // 폭 축소 + 좌측 정렬한다. (본체 자신은 위 클래스가 처리하고, .notice-container 는
+      // 다른 알림과 공유하므로 둘 다 건드리지 않는다.) 래퍼는 동적 DOM 이라 CSS 로
+      // 특정하기 어려워 부득이 인라인 !important 로 처리한다.
       const shrink: Record<string, string> = {
         "min-width": "0",
         width: "fit-content",
@@ -302,12 +294,11 @@ export default class GGAICorePlugin extends Plugin {
         "margin-left": "0",
         "margin-right": "auto", // block/margin-auto 로 가운데 정렬되던 것을 좌측으로
         "margin-bottom": "4px",
+        padding: "0", // 래퍼 패딩 제거
       };
-      let node: HTMLElement | null = el;
+      let node: HTMLElement | null = el.parentElement;
       while (node && !node.classList.contains("notice-container") && node !== document.body) {
         for (const [prop, val] of Object.entries(shrink)) node.style.setProperty(prop, val, "important");
-        // 래퍼(본체가 아닌 바깥 DIV)의 패딩이 남아 보이므로 0 으로 만든다.
-        if (node !== el) node.style.setProperty("padding", "0", "important");
         node = node.parentElement;
       }
       this.activeNotices.set(task.id, { notice, spinnerEl: spinner });
